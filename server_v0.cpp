@@ -42,8 +42,8 @@ void process_func(std::function<void (char*, char*, int)> fn, char* recv_buf, ch
 }
 
 int main() {
-    int socket_server = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_server == -1) {
+    int listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_sock == -1) {
         cout << "Error 001: create server socket failed." << endl;
         return -1;
     }
@@ -52,12 +52,12 @@ int main() {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(8000);
     addr.sin_addr.s_addr = INADDR_ANY;
-    if (bind(socket_server, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+    if (bind(listen_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         cout << "Error 002: bind failed." << endl;
         return -1;
     }
 
-    if (listen(socket_server, 5) == -1) {
+    if (listen(listen_sock, 5) == -1) {
         cout << "Error 003: listen failed." << endl;
         return -1;
     }
@@ -68,7 +68,7 @@ int main() {
     socklen_t client_addr_len = sizeof(client_addr);
     while (true) {
         cout << "Waiting for new connection..." << endl;
-        conn = accept(socket_server, (struct sockaddr*)&client_addr, &client_addr_len);
+        conn = accept(listen_sock, (struct sockaddr*)&client_addr, &client_addr_len);
         if (conn < 0) {
             cout << "Error 101: accept failed." << endl;
             return -1;

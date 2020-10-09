@@ -46,30 +46,9 @@ void process_func(std::function<void (char*, char*, int)> fn, char* recv_buf, ch
     fn(recv_buf, send_buf, 255);
 }
 
-void thread_func(int conn, std::function<void (char*, char*, int)> func) {
-    char recv_buf[255];
-    char send_buf[255];
-    while (true) {
-        memset(recv_buf, 0, sizeof(recv_buf));
-        int recv_len = recv(conn, recv_buf, sizeof(recv_buf), 0);
-        recv_buf[recv_len] = '\0';
-        if (strcmp(recv_buf, "exit") == 0) {
-            cout << "Exit: client exit." << endl;
-            break;
-        }
-        cout << "[Client] " << recv_buf << endl;
-
-        process_func(func, recv_buf, send_buf);
-        cout << "[Server] " << send_buf << endl;
-        send(conn, send_buf, sizeof(send_buf), 0);
-    }
-
-    close(conn);
-}
-
 int main() {
-    int socket_server = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_server == -1) {
+    int listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_sock == -1) {
         cout << "Error 001: create server socket failed." << endl;
         return -1;
     }
@@ -78,17 +57,17 @@ int main() {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(8000);
     addr.sin_addr.s_addr = INADDR_ANY;
-    if (bind(socket_server, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+    if (bind(listen_sock, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
         cout << "Error 002: bind failed." << endl;
         return -1;
     }
 
-    if (listen(socket_server, 5) == -1) {
+    if (listen(listen_sock, 5) == -1) {
         cout << "Error 003: listen failed. This might be caused by: the server was exitted by force and the [listening port] is in the TIME_WAIT status." << endl;
         return -1;
     }
 
-    int maxfd = socket_server;
+    int maxfd = listen_sock;
     int maxi = -1;
     int nready;
     int client[FD_SETSIZE];
@@ -98,7 +77,7 @@ int main() {
 
     fd_set rset, allset;
     FD_ZERO(&allset);
-    FD_SET(socket_server, &allset);
+    FD_SET(listen_sock, &allset);
     
     char recv_buf[255];
     char send_buf[255];
@@ -108,17 +87,19 @@ int main() {
     tv.tv_sec = 0.01;
     tv.tv_usec = 0;
 
+    int remain_connections = 0;
+
     cout << "Waiting for new connection..." << endl;
 
     while (true) {
         rset = allset;
-        nready = select(maxfd + 1, &rset, nullptr, nullptr, &tv);
+        nready = select(maxfd + 1, &rset, nullptr, nullptr, nullptr);
 
         // if new connection arrived.
-        if (FD_ISSET(socket_server, &rset)) {
+        if (FD_ISSET(listen_sock, &rset)) {
             struct sockaddr_in client_addr;
             socklen_t client_addr_len = sizeof(client_addr);
-            int conn = accept(socket_server, (struct sockaddr*)&client_addr, &client_addr_len);
+            int conn = accept(listen_sock, (struct sockaddr*)&client_addr, &client_addr_len);
 
             int i = 0;
             for (i = 0; i < FD_SETSIZE; i++) {
@@ -134,6 +115,8 @@ int main() {
             }
 
             FD_SET(conn, &allset);
+            remain_connections += 1;
+            cout << "[Server] Client connected, remain connections: " << remain_connections << endl;
 
             // maxfd for select.
             if (conn > maxfd) {
@@ -152,7 +135,7 @@ int main() {
         }
 
         // check all clients for data.
-        for (int i = 0; i < maxi; i++) {
+        for (int i = 0; i <= maxi; i++) {
             int sockfd = client[i];
             if (sockfd < 0) continue;
             if (FD_ISSET(sockfd, &rset)) {
@@ -162,14 +145,15 @@ int main() {
                 
                 // if connection closed by client.
                 if (recv_len == 0 || strcmp(recv_buf, "exit") == 0) {
+                    remain_connections -= 1;
+                    cout << "[Server] Client leave, remain connections: " << remain_connections << endl;
                     close(sockfd);
                     FD_CLR(sockfd, &allset);
                     client[i] = -1;
                 }
                 else {
                     process_func(reverse_string, recv_buf, send_buf);
-                    cout << send_buf << endl;
-                    write(sockfd, recv_buf, 255);
+                    send(sockfd, recv_buf, sizeof(recv_buf), 0);
                 }
 
                 if (--nready <= 0) {
